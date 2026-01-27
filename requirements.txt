@@ -1,0 +1,5 @@
+chainlit
+langgraph
+google-genai
+ollama
+python-dotenv
