@@ -28,4 +28,4 @@ chainlit run app.py
 
 This app generates Business Requirement Documents (BRD) using Chainlit + LangGraph + Ollama.
 
-🌐 **Live Demo:** Click here to open the Website: https://brd-generator-1.onrender.com/
+🌐 **Live Demo:** Click here to open the Website: (https://brd-generator-1.onrender.com/)
