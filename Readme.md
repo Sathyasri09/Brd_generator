@@ -22,3 +22,10 @@ This project generates a **professional Business Requirements Document (BRD)** f
 ```bash
 pip install -r requirements.txt
 chainlit run app.py
+
+
+# My BRD Generator App
+
+This app generates Business Requirement Documents (BRD) using Chainlit + LangGraph + Ollama.
+
+🌐 **Live Demo:** Click here to open the Website: https://brd-generator-1.onrender.com/
