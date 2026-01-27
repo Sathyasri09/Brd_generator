@@ -1,6 +1,10 @@
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict
 from google import genai
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class BRDState(TypedDict):
     project_name: str
@@ -14,8 +18,10 @@ def input_node(state: BRDState) -> BRDState:
     return state
 
 
+
 def validate_and_generate_node(state: BRDState) -> BRDState:
-    client = genai.Client(api_key="AIzaSyA5HZsCx8nA9KDmy4xgYX1IykeNqClC5_8") 
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    client = genai.Client(api_key=GOOGLE_API_KEY) 
     model = "gemini-3-flash-preview"
 
     prompt = f"""
@@ -23,7 +29,7 @@ You are an expert Business Analyst. Your task is to generate a professional, det
 
 Step 1: Check if the following text is a valid project description suitable for generating a BRD.
 - A valid description must clearly state the project purpose, goals, or system functionality.
-- If valid, generate a professional BRD in the following structure:
+- If valid, generate a Detailed and professional BRD in the following structure:
 
 1. Document Control (with Version, Date, Author, Description table)
 2. Introduction (Purpose, Scope, Objectives)
