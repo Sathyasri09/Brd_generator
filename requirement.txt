@@ -1,0 +1,4 @@
+chainlit
+langgraph
+google-genai
+ollama
