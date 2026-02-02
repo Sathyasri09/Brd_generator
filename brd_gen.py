@@ -1,60 +1,55 @@
 import chainlit as cl
 from brd_generate_agent import graph
 
-
-def extract_text(file_path):
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception as e:
-        print(f"File read error: {e}")
-        return ""
-
-
-
 @cl.on_chat_start
 async def start():
     await cl.Message(
-        content="Hi! Either type your project details OR upload a .txt file."
+        content="📄 Upload a BRD template (.docx) and describe your project."
     ).send()
 
 
-
-    
 @cl.on_message
 async def main(message: cl.Message):
-    user_input = ""
+    user_description = message.content or ""
+    template_file_path = None
 
- 
+    # Get uploaded template
     if message.elements:
         for element in message.elements:
-            if element.path:
-                user_input = extract_text(element.path)
+            if element.path and element.path.endswith(".docx"):
+                template_file_path = element.path
                 break
 
-    
-    if not user_input:
-        user_input = message.content or ""
-
-   
-    if not user_input.strip():
-        await cl.Message(content="Please type details or upload a .txt file.").send()
+    if not user_description.strip() or not template_file_path:
+        await cl.Message(
+            content="❌ Please upload a BRD template (.docx) AND provide a project description."
+        ).send()
         return
 
-      
+    # Show generating message AND keep reference
+    generating_msg = await cl.Message(
+        content="⏳ Generating your BRD... please wait..."
+    ).send()
 
-    await cl.Message(content="Generating BRD... please wait...").send()
-
- 
+    # Run agent
     result = graph.invoke({
         "project_name": "User Project",
-        "user_input": user_input,
+        "user_input": user_description,
+        "brd_template_file": template_file_path,
         "brd_text": "",
         "brd_sections": {},
-        "is_valid": False  
+        "is_valid": False,
+        "final_pdf": ""
     })
 
-    brd_output = result.get("brd_text", "No BRD generated.")
+    pdf_path = result["final_pdf"]
 
+    # Send PDF attached to the generating message
+    file = cl.File(
+        name="BRD_Document.pdf",
+        path=pdf_path
+    )
 
-    await cl.Message(content=brd_output).send()
+    await file.send(for_id=generating_msg.id)
+
+    await cl.Message(content="✅ Your BRD PDF is ready!").send()

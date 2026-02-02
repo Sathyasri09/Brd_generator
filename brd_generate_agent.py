@@ -2,102 +2,175 @@ from langgraph.graph import StateGraph, START, END
 from typing import TypedDict
 from google import genai
 import os
+import re
+from docx import Document
+from fpdf import FPDF
 from dotenv import load_dotenv
+import textwrap
 
 load_dotenv()
 
+# ---------------- STATE DEFINITION ----------------
 class BRDState(TypedDict):
     project_name: str
     brd_text: str
     brd_sections: dict
     user_input: str
+    brd_template_file: str
     is_valid: bool
+    final_pdf: str
 
+# ---------------- NODE 1 — INPUT ----------------
 def input_node(state: BRDState) -> BRDState:
-    print(f"Project Input Received: {state['user_input']}")
+    print(f"📌 Project Input Received: {state['user_input']}")
     return state
 
+# ---------------- HELPER: PARSE TEMPLATE ----------------
+def parse_template_headings(template_file: str):
+    doc = Document(template_file)
+    headings = []
+    for para in doc.paragraphs:
+        if para.style.name.startswith("Heading"):
+            headings.append(para.text.strip())
+    return headings
 
-
+# ---------------- NODE 2 — GENERATE BRD ----------------
 def validate_and_generate_node(state: BRDState) -> BRDState:
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-    client = genai.Client(api_key=GOOGLE_API_KEY) 
-    model = "gemini-3-flash-preview"
+    if not GOOGLE_API_KEY:
+        raise ValueError("GOOGLE_API_KEY not found")
+
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+    model = "gemini-2.5-flash"
+
+    project_name = state["project_name"]
+    project_description = state["user_input"]
+    template_file = state["brd_template_file"]
+
+    if not template_file:
+        raise ValueError("No BRD template file provided.")
+
+    headings = parse_template_headings(template_file)
+
+    # Combine all headings in one prompt
+    prompt_headings = "\n".join([f"{i+1}. {h}" for i, h in enumerate(headings)])
 
     prompt = f"""
-You are an expert Business Analyst. Your task is to generate a professional, detailed Business Requirements Document (BRD) for a software/system project.
+You are a professional Business Analyst.
 
-Step 1: Check if the following text is a valid project description suitable for generating a BRD.
-- A valid description must clearly state the project purpose, goals, or system functionality.
-- If valid, generate a Detailed and professional BRD in the following structure:
+Generate a complete BRD for the following project:
 
-1. Document Control (with Version, Date, Author, Description table)
-2. Introduction (Purpose, Scope, Objectives)
-3. Functional Requirements (table: ID, Requirement, Detailed Explanation)
-4. Non-Functional Requirements (table: Category, Requirement, Explanation)
-5. System Architecture (describe high-level architecture)
-6. Interfaces (table: Type, Interface, Details)
-7. Data Requirements (table: Entity, Attributes, Explanation)
-8. Assumptions
-9. Acceptance Criteria (table: ID, Description)
-10. Appendices / Glossary
+PROJECT NAME: {project_name}
+PROJECT DESCRIPTION: {project_description}
 
-Additional instructions:
-- Include **tables where appropriate**.
-- Provide **detailed explanation for each functional/non-functional requirement**.
-- Use **numbered headings** for sections and subsections.
-- Write in a **professional, client-ready format**, suitable for Word or PDF.
+Please generate detailed sections for all of these headings:
+{prompt_headings}
 
-Project Description:
-{state['user_input']}
-
-Step 2: If input is invalid, reply ONLY with:
-INVALID INPUT
+Rules:
+- Keep it professional.
+- Keep sections concise but informative.
+- Output plain text only, start each section with its heading as shown.
 """
 
+    # Single API call
+    response = client.models.generate_content(model=model, contents=prompt)
+    brd_text = response.text.strip()
 
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt
-    )
+    # Optional: split into sections
+    sections = {}
+    current_heading = None
+    for line in brd_text.split("\n"):
+        line = line.strip()
+        if any(line.startswith(f"{i+1}. {h}") for i, h in enumerate(headings)):
+            current_heading = line
+            sections[current_heading] = ""
+        elif current_heading:
+            sections[current_heading] += line + "\n"
 
-    output_text = response.text.strip()
-
-    if "INVALID INPUT" in output_text.upper():
-        state["brd_text"] = (
-            "Invalid project description.\n\n"
-            "Please describe a software/system project with details like features, users, or purpose."
-        )
-        state["is_valid"] = False
-    else:
-        state["brd_text"] = output_text
-        state["is_valid"] = True
-        print("BRD Generated Successfully!")
-
+    state["brd_sections"] = sections
+    state["brd_text"] = brd_text
+    state["is_valid"] = True
+    print("✅ BRD Generated Successfully based on template!")
     return state
 
+# ---------------- NODE 3 — PARSE SECTIONS ----------------
 def split_sections_node(state: BRDState) -> BRDState:
     brd_lines = state["brd_text"].split("\n")
     sections = {}
-    current_section = None
+    current_heading = None
 
     for line in brd_lines:
         line = line.strip()
-        if line.endswith(":") and len(line.split()) <= 5:
-            current_section = line[:-1]
-            sections[current_section] = ""
-        elif current_section:
-            sections[current_section] += line + "\n"
+        if re.match(r"^\d+(\.\d+)*\s", line):
+            current_heading = line
+            sections[current_heading] = ""
+        elif current_heading:
+            sections[current_heading] += line + "\n"
 
     state["brd_sections"] = sections
-    print("BRD split into sections successfully!")
+    print("📂 BRD split into sections successfully!")
     return state
 
+# ---------------- PDF CREATION ----------------
+def markdown_to_pdf(brd_text: str, output_pdf: str = "final_brd.pdf") -> str:
+    pdf = FPDF(format="A4")
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # Set proper margins
+    left_margin = 15
+    right_margin = 15
+    pdf.set_left_margin(left_margin)
+    pdf.set_right_margin(right_margin)
+
+    pdf.add_page()
+
+    page_width = pdf.w - left_margin - right_margin  # Safe writable width
+
+    # Title
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(page_width, 10, "Business Requirements Document (BRD)", ln=True, align="C")
+    pdf.ln(8)
+
+    lines = brd_text.split("\n")
+
+    for line in lines:
+        line = line.strip()
+
+        if not line:
+            pdf.ln(3)
+            continue
+
+        # Section Headings (1. Introduction, 2. Scope, etc.)
+        if re.match(r"^\d+(\.\d+)*\s", line):
+            pdf.set_font("Arial", "B", 13)
+            pdf.ln(2)
+            pdf.multi_cell(page_width, 8, line)
+            pdf.ln(1)
+
+        # Normal Paragraph Text
+        else:
+            pdf.set_font("Arial", "", 11)
+
+            # Prevent long unbroken text from breaking layout
+            safe_line = line.encode("latin-1", "replace").decode("latin-1")
+
+            pdf.multi_cell(page_width, 6, safe_line)
+            pdf.ln(1)
+
+    pdf.output(output_pdf)
+    print(f"📕 Final PDF Ready: {output_pdf}")
+    return output_pdf
+
+# ---------------- NODE 4 — OUTPUT PDF ----------------
 def output_node(state: BRDState) -> BRDState:
+    pdf_path = "final_brd.pdf"
+    markdown_to_pdf(state["brd_text"], pdf_path)
+    state["final_pdf"] = pdf_path   # ⭐ THIS is what UI needs
     return state
 
-builder = StateGraph(BRDState)
 
+# ---------------- GRAPH ----------------
+builder = StateGraph(BRDState)
 builder.add_node("input_node", input_node)
 builder.add_node("validate_and_generate_node", validate_and_generate_node)
 builder.add_node("split_sections_node", split_sections_node)
@@ -105,7 +178,6 @@ builder.add_node("output_node", output_node)
 
 builder.add_edge(START, "input_node")
 builder.add_edge("input_node", "validate_and_generate_node")
-
 
 def route_after_validation(state: BRDState):
     return "split_sections_node" if state["is_valid"] else END

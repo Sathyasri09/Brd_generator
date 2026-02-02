@@ -3,3 +3,7 @@ langgraph
 google-genai
 ollama
 python-dotenv
+docx2pdf
+python-docx
+markdown2 
+fpdf2
