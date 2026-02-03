@@ -4,13 +4,5 @@ python-docx
 html4docx
 python-dotenv
 google-genai
-<<<<<<< HEAD
-ollama
-python-dotenv
-docx2pdf
-python-docx
-markdown2 
-fpdf2
-=======
 htmldocx
->>>>>>> 95f6ff8 (Updated code with new version)
+
